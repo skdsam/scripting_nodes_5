@@ -27,10 +27,9 @@ class SN_ButtonNodeNew(SN_ScriptingBaseNode, bpy.types.Node):
 
     def reset_inputs(self):
         """Remove all operator inputs"""
-        for i in range(len(self.inputs) - 1, -1, -1):
-            inp = self.inputs[i]
-            if inp.can_be_disabled:
-                self.inputs.remove(inp)
+        inputs_to_remove = [inp for inp in self.inputs if hasattr(inp, 'can_be_disabled') and inp.can_be_disabled]
+        for inp in inputs_to_remove:
+            self.inputs.remove(inp)
 
     def create_inputs(self, op_rna):
         """Create inputs for operator"""
@@ -68,6 +67,7 @@ class SN_ButtonNodeNew(SN_ScriptingBaseNode, bpy.types.Node):
                     socket.items = str(
                         list(map(lambda item: item.name, prop.stngs_enum.items))
                     )
+                    socket.can_be_disabled = True
                 else:
                     self._add_input(
                         self.socket_names[prop.property_type], prop.name
