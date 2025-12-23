@@ -17,22 +17,33 @@ class SN_StringSocket(bpy.types.NodeSocket, ScriptingSocket):
         description="You're using two types of quotes in your string! Be aware that this will cause syntax errors if you don't change ' to \\'",
     )
 
+    # ----------------------------
+    # 5.0-safe: NO WRITES IN GETTER PATHS
+    # ----------------------------
+    def _calc_string_repr_warning(self, raw: str) -> bool:
+        """Pure computation: returns True if string contains both ' and \"."""
+        return ("'" in raw) and ('"' in raw)
+
     def get_python_repr(self):
-        self.string_repr_warning = False
+        # DO NOT write to self.string_repr_warning here (Blender 5.0 read-only context)
         value = getattr(self, self.subtype_attr)
+
+        # normalize dir path trailing backslash for Windows (kept from your logic)
         if self.subtype == "DIR_PATH" and value and value[-1] == "\\":
             value = value[:-1]
+
+        # Quote wrapping logic (kept from your logic)
         if "'" in value and not '"' in value:
-            value = f'"{value}"'
+            wrapped = f'"{value}"'
         elif '"' in value and not "'" in value:
-            value = f"'{value}'"
+            wrapped = f"'{value}'"
         else:
-            if "'" in value and '"' in value:
-                self.string_repr_warning = True
-            value = f"'{value}'"
+            # if both quotes exist, we still return single-quoted string as before
+            wrapped = f"'{value}'"
+
         if self.subtype == "NONE":
-            return value
-        return f"r{value}"
+            return wrapped
+        return f"r{wrapped}"
 
     default_value: bpy.props.StringProperty(
         name="Value",
@@ -42,12 +53,10 @@ class SN_StringSocket(bpy.types.NodeSocket, ScriptingSocket):
     )
 
     def _get_file_path(self):
-        """Returns the file path value stored on the parent node"""
         storage_key = self._get_socket_storage_key("_value_file_path")
         return self.node.get(storage_key, "")
 
     def _set_file_path(self, value):
-        """Sets the file path value on the parent node"""
         new_path = bpy.path.abspath(value)
         if new_path and new_path[-1] == "\\":
             new_path = new_path[:-1]
@@ -56,7 +65,6 @@ class SN_StringSocket(bpy.types.NodeSocket, ScriptingSocket):
         self._update_value(None)
 
     def update_file_path(self, context):
-        # The set callback handles the path normalization
         pass
 
     value_file_path: bpy.props.StringProperty(
@@ -69,12 +77,10 @@ class SN_StringSocket(bpy.types.NodeSocket, ScriptingSocket):
     )
 
     def _get_dir_path(self):
-        """Returns the directory path value stored on the parent node"""
         storage_key = self._get_socket_storage_key("_value_dir_path")
         return self.node.get(storage_key, "")
 
     def _set_dir_path(self, value):
-        """Sets the directory path value on the parent node"""
         new_path = bpy.path.abspath(value)
         if new_path and new_path[-1] == "\\":
             new_path = new_path[:-1]
@@ -83,7 +89,6 @@ class SN_StringSocket(bpy.types.NodeSocket, ScriptingSocket):
         self._update_value(None)
 
     def update_dir_path(self, context):
-        # The set callback handles the path normalization
         pass
 
     value_dir_path: bpy.props.StringProperty(
@@ -108,9 +113,14 @@ class SN_StringSocket(bpy.types.NodeSocket, ScriptingSocket):
     def draw_socket(self, context, layout, node, text, minimal=False):
         if self.is_output or self.is_linked:
             layout.label(text=text)
-        else:
-            if self.string_repr_warning:
-                layout.prop(
-                    self, "string_repr_warning", text="", icon="ERROR", emboss=False
-                )
-            layout.prop(self, self.subtype_attr, text=text)
+            return
+
+        # Compute warning on the fly (no property write needed)
+        raw = getattr(self, self.subtype_attr)
+        warn = self._calc_string_repr_warning(raw)
+
+        if warn:
+            # draw an icon-only label; don't use a property toggle here
+            layout.label(text="", icon="ERROR")
+
+        layout.prop(self, self.subtype_attr, text=text)
