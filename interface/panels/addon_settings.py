@@ -1,7 +1,58 @@
 import bpy
 
 
+# ------------------------------------------------------------------------
+# Operator: Relink UI (SAFE, minimal, no extra dependencies)
+# ------------------------------------------------------------------------
+class SN_OT_RelinkUI(bpy.types.Operator):
+    bl_idname = "sn.relink_ui"
+    bl_label = "Relink UI"
+    bl_description = "Temporarily remove and recreate INTERFACE links in all Serpens node trees"
+    bl_options = {"REGISTER"}  # keep minimal; remove UNDO to avoid oddities with links
 
+    def execute(self, context):
+        storage = []
+
+        for tree in bpy.data.node_groups:
+            # Your original condition, but guarded (some ID types don't support `"key" in tree`)
+            is_sn = False
+            try:
+                is_sn = hasattr(tree, "is_sn") or ("is_sn" in tree)
+            except Exception:
+                is_sn = hasattr(tree, "is_sn")
+
+            if not is_sn:
+                continue
+
+            links_to_save = []
+            for l in list(tree.links):
+                f_color = getattr(l.from_node, "node_color", "")
+                t_color = getattr(l.to_node, "node_color", "")
+
+                if f_color == "INTERFACE" or t_color == "INTERFACE":
+                    links_to_save.append((l.from_socket, l.to_socket))
+                    try:
+                        tree.links.remove(l)
+                    except Exception:
+                        pass
+
+            if links_to_save:
+                storage.append((tree, links_to_save))
+
+        for tree, saved_links in storage:
+            for from_sock, to_sock in saved_links:
+                try:
+                    tree.links.new(from_sock, to_sock)
+                except Exception:
+                    pass
+
+        self.report({"INFO"}, "Relink UI complete")
+        return {"FINISHED"}
+
+
+# ------------------------------------------------------------------------
+# Panels (YOUR CODE + minimal additions only)
+# ------------------------------------------------------------------------
 class SN_PT_AddonSettingsPanel(bpy.types.Panel):
     bl_idname = "SN_PT_AddonSettingsPanel"
     bl_label = ""
@@ -14,7 +65,7 @@ class SN_PT_AddonSettingsPanel(bpy.types.Panel):
     @classmethod
     def poll(cls, context):
         return context.space_data.tree_type == "ScriptingNodesTree" and context.space_data.node_tree
-    
+
     def draw_header(self, context):
         layout = self.layout
         layout.label(text="Settings")
@@ -51,9 +102,15 @@ class SN_PT_AddonSettingsPanel(bpy.types.Panel):
         subrow.active = sn.debug_python_nodes or sn.debug_python_sockets
         subrow.prop(sn, "debug_selected_only")
         col.prop(sn, "debug_python_properties")
-        
-        
-        
+
+        # --------------------------------------------------
+        # NEW: Debug -> Relink UI section + button
+        # --------------------------------------------------
+        box = layout.box()
+        box.label(text="Relink UI", icon="FILE_REFRESH")
+        box.operator("sn.relink_ui", text="Relink UI", icon="FILE_REFRESH")
+
+
 class SN_PT_EasyBpyPanel(bpy.types.Panel):
     bl_idname = "SN_PT_EasyBpyPanel"
     bl_parent_id = "SN_PT_AddonSettingsPanel"
@@ -62,12 +119,12 @@ class SN_PT_EasyBpyPanel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = "Serpens"
     bl_order = 0
-    bl_options={"HEADER_LAYOUT_EXPAND"}
+    bl_options = {"HEADER_LAYOUT_EXPAND"}
 
     @classmethod
     def poll(cls, context):
         return context.space_data.tree_type == "ScriptingNodesTree" and context.space_data.node_tree
-    
+
     def draw_header(self, context):
         layout = self.layout
         layout.label(text="Easy BPY")
